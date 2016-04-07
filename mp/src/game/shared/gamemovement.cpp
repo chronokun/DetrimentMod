@@ -1124,6 +1124,10 @@ void CGameMovement::ReduceTimers( void )
 			player->m_flSwimSoundTime = 0;
 		}
 	}
+	if ( m_fWallKickTime > 0.0f )
+	{
+		m_fWallKickTime -= frame_msec;
+	}
 }
 
 //-----------------------------------------------------------------------------
@@ -1635,6 +1639,9 @@ void CGameMovement::Friction( void )
 	{
 		friction = sv_friction.GetFloat() * player->m_surfaceFriction;
 
+		if(player->m_Local.m_bDucked)
+			friction *= 0.1f;
+
 		// Bleed off some speed, but if we have less than the bleed
 		//  threshold, bleed the threshold amount.
 
@@ -1708,9 +1715,12 @@ void CGameMovement::AirAccelerate( Vector& wishdir, float wishspeed, float accel
 {
 	int i;
 	float addspeed, accelspeed, currentspeed;
-	float wishspd;
+	float wishspd, airwalkspd;
+	float wishsp2, addspeed2;
+	float slow;
 
 	wishspd = wishspeed;
+	wishsp2 = wishspeed;
 	
 	if (player->pl.deadflag)
 		return;
@@ -1721,29 +1731,45 @@ void CGameMovement::AirAccelerate( Vector& wishdir, float wishspeed, float accel
 	// Cap speed
 	if ( wishspd > GetAirSpeedCap() )
 		wishspd = GetAirSpeedCap();
+	if (wishsp2 > 320.0f)
+		wishsp2 = 320.0f;
 
 	// Determine veer amount
 	currentspeed = mv->m_vecVelocity.Dot(wishdir);
 
 	// See how much to add
 	addspeed = wishspd - currentspeed;
+	addspeed2 = wishsp2 - currentspeed;
 
-	// If not adding any, done.
-	if (addspeed <= 0)
-		return;
+	if(addspeed < 0.0f)
+		addspeed = 0.0f;
+
+	if(addspeed2 < 0.0f)
+		addspeed2 = 0.0f;
 
 	// Determine acceleration speed after acceleration
-	accelspeed = accel * wishspeed * gpGlobals->frametime * player->m_surfaceFriction;
+	accelspeed = accel * wishspeed * gpGlobals->frametime * player->m_surfaceFriction * 15.0f;
+	airwalkspd = accel * wishspeed * gpGlobals->frametime * player->m_surfaceFriction * 0.1f;
 
 	// Cap it
 	if (accelspeed > addspeed)
 		accelspeed = addspeed;
-	
+
+	if (airwalkspd > addspeed2)
+		airwalkspd = addspeed2;
+
 	// Adjust pmove vel.
+	slow = wishdir.Dot(mv->m_vecVelocity.Normalized());
 	for (i=0 ; i<3 ; i++)
 	{
-		mv->m_vecVelocity[i] += accelspeed * wishdir[i];
-		mv->m_outWishVel[i] += accelspeed * wishdir[i];
+		mv->m_vecVelocity[i] += accelspeed * wishdir[i] * (1.f+slow);
+		mv->m_outWishVel[i] += accelspeed * wishdir[i] * (1.f+slow);
+	}
+	for (i=0 ; i<3 ; i++)
+	{
+		//
+		mv->m_vecVelocity[i] += airwalkspd * wishdir[i];
+		mv->m_outWishVel[i] += airwalkspd * wishdir[i];
 	}
 }
 
@@ -2063,6 +2089,7 @@ void CGameMovement::FullWalkMove( )
 		else
 		{
 			mv->m_nOldButtons &= ~IN_JUMP;
+			m_bJustJumped = false;
 		}
 
 		// Perform regular water movement
@@ -2088,6 +2115,7 @@ void CGameMovement::FullWalkMove( )
 		else
 		{
 			mv->m_nOldButtons &= ~IN_JUMP;
+			m_bJustJumped = false;
 		}
 
 		// Fricion is handled before we add in any base velocity. That way, if we are on a conveyor, 
@@ -2391,11 +2419,27 @@ bool CGameMovement::CheckJumpButton( void )
 		return false;
 	}
 
+	if(m_bJustJumped)
+		return false;
+
+	bool bWallKick = false;
 	// No more effect
  	if (player->GetGroundEntity() == NULL)
 	{
 		mv->m_nOldButtons |= IN_JUMP;
-		return false;		// in air, so no effect
+		if(m_bOnWall == false || m_fWallKickTime > 0.0f)
+		{
+			return false;		// in air, so no effect
+		}
+		else
+		{
+			m_fWallKickTime = 1000.0f;
+			bWallKick = true;
+		}
+	}
+	else
+	{
+		m_fWallKickTime = 0.0f;
 	}
 
 	// Don't allow jumping when the player is in a stasis field.
@@ -2404,12 +2448,16 @@ bool CGameMovement::CheckJumpButton( void )
 		return false;
 #endif
 
+	/*
 	if ( mv->m_nOldButtons & IN_JUMP )
 		return false;		// don't pogo stick
+	*/
+	
 
 	// Cannot jump will in the unduck transition.
 	if ( player->m_Local.m_bDucking && (  player->GetFlags() & FL_DUCKING ) )
 		return false;
+		
 
 	// Still updating the eye position.
 	if ( player->m_Local.m_flDuckJumpTime > 0.0f )
@@ -2430,20 +2478,17 @@ bool CGameMovement::CheckJumpButton( void )
 	}
 
 	float flMul;
-	if ( g_bMovementOptimizations )
 	{
-#if defined(HL2_DLL) || defined(HL2_CLIENT_DLL)
-		Assert( GetCurrentGravity() == 600.0f );
-		flMul = 160.0f;	// approx. 21 units.
-#else
-		Assert( GetCurrentGravity() == 800.0f );
-		flMul = 268.3281572999747f;
-#endif
-
+		//flMul = sqrt(2 * GetCurrentGravity() * GAMEMOVEMENT_JUMP_HEIGHT);
+		flMul = sqrt(2.f * 800.f * 65.f);
 	}
-	else
+
+	// Wallkick
+	if(bWallKick)
 	{
-		flMul = sqrt(2 * GetCurrentGravity() * GAMEMOVEMENT_JUMP_HEIGHT);
+		mv->m_vecVelocity += 450.0f * m_WallKickDirection;
+		if(mv->m_vecVelocity[2] < 0.0f)
+			mv->m_vecVelocity[2] = 0.0f;
 	}
 
 	// Acclerate upward
@@ -2468,30 +2513,24 @@ bool CGameMovement::CheckJumpButton( void )
 #if defined( HL2_DLL ) || defined( HL2_CLIENT_DLL )
 	if ( gpGlobals->maxClients == 1 )
 	{
-		CHLMoveData *pMoveData = ( CHLMoveData* )mv;
-		Vector vecForward;
+		Vector vecForward, vecSideways;
 		AngleVectors( mv->m_vecViewAngles, &vecForward );
 		vecForward.z = 0;
 		VectorNormalize( vecForward );
+		VectorMultiply(vecForward, Vector(0.0f, 0.0f, 1.0f), vecSideways);
 		
 		// We give a certain percentage of the current forward movement as a bonus to the jump speed.  That bonus is clipped
 		// to not accumulate over time.
-		float flSpeedBoostPerc = ( !pMoveData->m_bIsSprinting && !player->m_Local.m_bDucked ) ? 0.5f : 0.1f;
+		float flSpeedBoostPerc = 0.5f;
 		float flSpeedAddition = fabs( mv->m_flForwardMove * flSpeedBoostPerc );
-		float flMaxSpeed = mv->m_flMaxSpeed + ( mv->m_flMaxSpeed * flSpeedBoostPerc );
-		float flNewSpeed = ( flSpeedAddition + mv->m_vecVelocity.Length2D() );
-
-		// If we're over the maximum, we want to only boost as much as will get us to the goal speed
-		if ( flNewSpeed > flMaxSpeed )
-		{
-			flSpeedAddition -= flNewSpeed - flMaxSpeed;
-		}
 
 		if ( mv->m_flForwardMove < 0.0f )
 			flSpeedAddition *= -1.0f;
 
 		// Add it on
 		VectorAdd( (vecForward*flSpeedAddition), mv->m_vecVelocity, mv->m_vecVelocity );
+		if(fabs(mv->m_flSideMove) > 0.1f)
+			VectorAdd( (vecSideways*flSpeedAddition*mv->m_flSideMove), mv->m_vecVelocity, mv->m_vecVelocity );
 	}
 #endif
 
@@ -2526,6 +2565,7 @@ bool CGameMovement::CheckJumpButton( void )
 
 	// Flag that we jumped.
 	mv->m_nOldButtons |= IN_JUMP;	// don't jump again until released
+	m_bJustJumped = true;
 	return true;
 }
 
@@ -2584,6 +2624,9 @@ int CGameMovement::TryPlayerMove( Vector *pFirstDest, trace_t *pFirstTrace )
 	time_left = gpGlobals->frametime;   // Total time for this movement operation.
 
 	new_velocity.Init();
+
+	m_bOnWall = false;
+	m_WallKickDirection = Vector(0, 0, 0);
 
 	for (bumpcount=0 ; bumpcount < numbumps; bumpcount++)
 	{
@@ -2688,6 +2731,9 @@ int CGameMovement::TryPlayerMove( Vector *pFirstDest, trace_t *pFirstTrace )
 		if (!pm.plane.normal[2])
 		{
 			blocked |= 2;		// step / wall
+			m_bOnWall = true;
+			m_WallKickDirection += pm.plane.normal;
+			VectorNormalize(m_WallKickDirection);
 		}
 
 		// Reduce amount of m_flFrameTime left by total time left * fraction
@@ -3934,7 +3980,8 @@ void CGameMovement::CheckFalling( void )
 				//
 				// If they hit the ground going this fast they may take damage (and die).
 				//
-				bAlive = MoveHelper( )->PlayerFallingDamage();
+
+				//bAlive = MoveHelper( )->PlayerFallingDamage();
 				fvol = 1.0;
 			}
 			else if ( player->m_Local.m_flFallVelocity > PLAYER_MAX_SAFE_FALL_SPEED / 2 )
@@ -3957,6 +4004,12 @@ void CGameMovement::CheckFalling( void )
 
 	// let any subclasses know that the player has landed and how hard
 	OnLand(player->m_Local.m_flFallVelocity);
+
+	if((mv->m_nButtons & IN_DUCK) && (mv->m_nButtons & IN_JUMP) && !(m_bJustJumped))
+	{
+		mv->m_vecVelocity[2] = player->m_Local.m_flFallVelocity;
+		m_bJustJumped = true;
+	}
 	
 	//
 	// Clear the fall velocity so the impact doesn't happen again.
@@ -3978,15 +4031,17 @@ void CGameMovement::PlayerRoughLandingEffects( float fvol )
 		//
 		// Knock the screen around a little bit, temporary effect.
 		//
+		/*
 		player->m_Local.m_vecPunchAngle.Set( ROLL, player->m_Local.m_flFallVelocity * 0.013 );
 
 		if ( player->m_Local.m_vecPunchAngle[PITCH] > 8 )
 		{
 			player->m_Local.m_vecPunchAngle.Set( PITCH, 8 );
 		}
+		*/
 
 #if !defined( CLIENT_DLL )
-		player->RumbleEffect( ( fvol > 0.85f ) ? ( RUMBLE_FALL_LONG ) : ( RUMBLE_FALL_SHORT ), 0, RUMBLE_FLAGS_NONE );
+		//player->RumbleEffect( ( fvol > 0.85f ) ? ( RUMBLE_FALL_LONG ) : ( RUMBLE_FALL_SHORT ), 0, RUMBLE_FLAGS_NONE );
 #endif
 	}
 }
@@ -4708,9 +4763,13 @@ void CGameMovement::PerformFlyCollisionResolution( trace_t &pm, Vector &move )
 	case MOVECOLLIDE_DEFAULT:
 		{
 			if (player->GetMoveCollide() == MOVECOLLIDE_FLY_BOUNCE)
+			{
 				backoff = 2.0 - player->m_surfaceFriction;
+			}
 			else
+			{
 				backoff = 1;
+			}
 
 			ClipVelocity (mv->m_vecVelocity, pm.plane.normal, mv->m_vecVelocity, backoff);
 		}

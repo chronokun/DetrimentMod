@@ -162,15 +162,6 @@ public:
 	// Locator
 	void UpdateLocatorPosition( const Vector &vecPosition );
 
-	// Sprint Device
-	void StartAutoSprint( void );
-	void StartSprinting( void );
-	void StopSprinting( void );
-	void InitSprinting( void );
-	bool IsSprinting( void ) { return m_fIsSprinting; }
-	bool CanSprint( void );
-	void EnableSprint( bool bEnable);
-
 	bool CanZoom( CBaseEntity *pRequester );
 	void ToggleZoom(void);
 	void StartZooming( void );

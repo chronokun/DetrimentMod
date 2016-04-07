@@ -88,7 +88,7 @@ void CHL2MPMachineGun::PrimaryAttack( void )
 	{
 		if ( iBulletsToFire > m_iClip1 )
 			iBulletsToFire = m_iClip1;
-		m_iClip1 -= iBulletsToFire;
+		//m_iClip1 -= iBulletsToFire;
 	}
 
 	CHL2MP_Player *pHL2MPPlayer = ToHL2MPPlayer( pPlayer );
@@ -134,43 +134,18 @@ void CHL2MPMachineGun::FireBullets( const FireBulletsInfo_t &info )
 //-----------------------------------------------------------------------------
 void CHL2MPMachineGun::DoMachineGunKick( CBasePlayer *pPlayer, float dampEasy, float maxVerticleKickAngle, float fireDurationTime, float slideLimitTime )
 {
-	#define	KICK_MIN_X			0.2f	//Degrees
-	#define	KICK_MIN_Y			0.2f	//Degrees
-	#define	KICK_MIN_Z			0.1f	//Degrees
+	//Disorient the player
+	QAngle angles = pPlayer->GetLocalAngles();
 
-	QAngle vecScratch;
-	int iSeed = CBaseEntity::GetPredictionRandomSeed() & 255;
-	
-	//Find how far into our accuracy degradation we are
-	float duration	= ( fireDurationTime > slideLimitTime ) ? slideLimitTime : fireDurationTime;
-	float kickPerc = duration / slideLimitTime;
+	//angles.x += random->RandomFloat( -0.5f, 0 );
+	//angles.y += random->RandomFloat( -0.25f, 0.25f );
+	//angles.z = 0;
 
-	// do this to get a hard discontinuity, clear out anything under 10 degrees punch
-	pPlayer->ViewPunchReset( 10 );
+#ifndef CLIENT_DLL
+	pPlayer->SnapEyeAngles( angles );
+#endif
 
-	//Apply this to the view angles as well
-	vecScratch.x = -( KICK_MIN_X + ( maxVerticleKickAngle * kickPerc ) );
-	vecScratch.y = -( KICK_MIN_Y + ( maxVerticleKickAngle * kickPerc ) ) / 3;
-	vecScratch.z = KICK_MIN_Z + ( maxVerticleKickAngle * kickPerc ) / 8;
-
-	RandomSeed( iSeed );
-
-	//Wibble left and right
-	if ( RandomInt( -1, 1 ) >= 0 )
-		vecScratch.y *= -1;
-
-	iSeed++;
-
-	//Wobble up and down
-	if ( RandomInt( -1, 1 ) >= 0 )
-		vecScratch.z *= -1;
-
-	//Clip this to our desired min/max
-	UTIL_ClipPunchAngleOffset( vecScratch, pPlayer->m_Local.m_vecPunchAngle, QAngle( 24.0f, 3.0f, 1.0f ) );
-
-	//Add it to the view punch
-	// NOTE: 0.5 is just tuned to match the old effect before the punch became simulated
-	pPlayer->ViewPunch( vecScratch * 0.5 );
+	pPlayer->ViewPunch( QAngle( random->RandomFloat( -0.25f, 0.0f ), random->RandomFloat( -0.0625f, 0.0625f ), 0 ) );
 }
 
 //-----------------------------------------------------------------------------

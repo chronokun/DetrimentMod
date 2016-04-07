@@ -65,10 +65,6 @@ public:
 	virtual void CalcView( Vector &eyeOrigin, QAngle &eyeAngles, float &zNear, float &zFar, float &fov );
 	virtual const QAngle& EyeAngles( void );
 
-	
-	bool	CanSprint( void );
-	void	StartSprinting( void );
-	void	StopSprinting( void );
 	void	HandleSpeedChanges( void );
 	void	UpdateLookAt( void );
 	void	Initialize( void );

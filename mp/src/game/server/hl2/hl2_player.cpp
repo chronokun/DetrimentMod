@@ -80,19 +80,16 @@ extern int gEvilImpulse101;
 ConVar sv_autojump( "sv_autojump", "0" );
 
 ConVar hl2_walkspeed( "hl2_walkspeed", "150" );
-ConVar hl2_normspeed( "hl2_normspeed", "190" );
-ConVar hl2_sprintspeed( "hl2_sprintspeed", "320" );
+ConVar hl2_normspeed( "hl2_normspeed", "320" );
 
 ConVar hl2_darkness_flashlight_factor ( "hl2_darkness_flashlight_factor", "1" );
 
 #ifdef HL2MP
 	#define	HL2_WALK_SPEED 150
-	#define	HL2_NORM_SPEED 190
-	#define	HL2_SPRINT_SPEED 320
+	#define	HL2_NORM_SPEED 320
 #else
 	#define	HL2_WALK_SPEED hl2_walkspeed.GetFloat()
 	#define	HL2_NORM_SPEED hl2_normspeed.GetFloat()
-	#define	HL2_SPRINT_SPEED hl2_sprintspeed.GetFloat()
 #endif
 
 ConVar player_showpredictedposition( "player_showpredictedposition", "0" );
@@ -482,9 +479,8 @@ void CHL2_Player::HandleSpeedChanges( void )
 {
 	int buttonsChanged = m_afButtonPressed | m_afButtonReleased;
 
-	bool bCanSprint = CanSprint();
-	bool bIsSprinting = IsSprinting();
-	bool bWantSprint = ( bCanSprint && IsSuitEquipped() && (m_nButtons & IN_SPEED) );
+	bool bIsSprinting = false;
+	bool bWantSprint = false;
 	if ( bIsSprinting != bWantSprint && (buttonsChanged & IN_SPEED) )
 	{
 		// If someone wants to sprint, make sure they've pressed the button to do so. We want to prevent the
@@ -494,18 +490,18 @@ void CHL2_Player::HandleSpeedChanges( void )
 		{
 			if ( sv_stickysprint.GetBool() )
 			{
-				StartAutoSprint();
+				//StartAutoSprint();
 			}
 			else
 			{
-				StartSprinting();
+				///StartSprinting();
 			}
 		}
 		else
 		{
 			if ( !sv_stickysprint.GetBool() )
 			{
-				StopSprinting();
+				//StopSprinting();
 			}
 			// Reset key, so it will be activated post whatever is suppressing it.
 			m_nButtons &= ~IN_SPEED;
@@ -518,7 +514,7 @@ void CHL2_Player::HandleSpeedChanges( void )
 	
 	if( IsSuitEquipped() )
 	{
-		bWantWalking = (m_nButtons & IN_WALK) && !IsSprinting() && !(m_nButtons & IN_DUCK);
+		bWantWalking = (m_nButtons & IN_WALK) && !false && !(m_nButtons & IN_DUCK);
 	}
 	else
 	{
@@ -648,36 +644,6 @@ void CHL2_Player::PreThink(void)
 #ifdef HL2_EPISODIC
 	HandleArmorReduction();
 #endif
-
-	if( sv_stickysprint.GetBool() && m_bIsAutoSprinting )
-	{
-		// If we're ducked and not in the air
-		if( IsDucked() && GetGroundEntity() != NULL )
-		{
-			StopSprinting();
-		}
-		// Stop sprinting if the player lets off the stick for a moment.
-		else if( GetStickDist() == 0.0f )
-		{
-			if( gpGlobals->curtime > m_fAutoSprintMinTime )
-			{
-				StopSprinting();
-			}
-		}
-		else
-		{
-			// Stop sprinting one half second after the player stops inputting with the move stick.
-			m_fAutoSprintMinTime = gpGlobals->curtime + 0.5f;
-		}
-	}
-	else if ( IsSprinting() )
-	{
-		// Disable sprint while ducked unless we're in the air (jumping)
-		if ( IsDucked() && ( GetGroundEntity() != NULL ) )
-		{
-			StopSprinting();
-		}
-	}
 
 	VPROF_SCOPE_END();
 
@@ -953,7 +919,6 @@ void CHL2_Player::HandleAdmireGlovesAnimation( void )
 void CHL2_Player::Activate( void )
 {
 	BaseClass::Activate();
-	InitSprinting();
 
 #ifdef HL2_EPISODIC
 
@@ -1132,8 +1097,6 @@ void CHL2_Player::Spawn(void)
 
 	m_pPlayerAISquad = g_AI_SquadManager.FindCreateSquad(AllocPooledString(PLAYER_SQUADNAME));
 
-	InitSprinting();
-
 	// Setup our flashlight values
 #ifdef HL2_EPISODIC
 	m_HL2Local.m_flFlashBattery = 100.0f;
@@ -1152,116 +1115,6 @@ void CHL2_Player::UpdateLocatorPosition( const Vector &vecPosition )
 	m_HL2Local.m_vecLocatorOrigin = vecPosition;
 #endif//HL2_EPISODIC 
 }
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CHL2_Player::InitSprinting( void )
-{
-	StopSprinting();
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Returns whether or not we are allowed to sprint now.
-//-----------------------------------------------------------------------------
-bool CHL2_Player::CanSprint()
-{
-	return ( m_bSprintEnabled &&										// Only if sprint is enabled 
-			!IsWalking() &&												// Not if we're walking
-			!( m_Local.m_bDucked && !m_Local.m_bDucking ) &&			// Nor if we're ducking
-			(GetWaterLevel() != 3) &&									// Certainly not underwater
-			(GlobalEntity_GetState("suit_no_sprint") != GLOBAL_ON) );	// Out of the question without the sprint module
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CHL2_Player::StartAutoSprint() 
-{
-	if( IsSprinting() )
-	{
-		StopSprinting();
-	}
-	else
-	{
-		StartSprinting();
-		m_bIsAutoSprinting = true;
-		m_fAutoSprintMinTime = gpGlobals->curtime + 1.5f;
-	}
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CHL2_Player::StartSprinting( void )
-{
-	if( m_HL2Local.m_flSuitPower < 10 )
-	{
-		// Don't sprint unless there's a reasonable
-		// amount of suit power.
-		
-		// debounce the button for sound playing
-		if ( m_afButtonPressed & IN_SPEED )
-		{
-			CPASAttenuationFilter filter( this );
-			filter.UsePredictionRules();
-			EmitSound( filter, entindex(), "HL2Player.SprintNoPower" );
-		}
-		return;
-	}
-
-	if( !SuitPower_AddDevice( SuitDeviceSprint ) )
-		return;
-
-	CPASAttenuationFilter filter( this );
-	filter.UsePredictionRules();
-	EmitSound( filter, entindex(), "HL2Player.SprintStart" );
-
-	SetMaxSpeed( HL2_SPRINT_SPEED );
-	m_fIsSprinting = true;
-}
-
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CHL2_Player::StopSprinting( void )
-{
-	if ( m_HL2Local.m_bitsActiveDevices & SuitDeviceSprint.GetDeviceID() )
-	{
-		SuitPower_RemoveDevice( SuitDeviceSprint );
-	}
-
-	if( IsSuitEquipped() )
-	{
-		SetMaxSpeed( HL2_NORM_SPEED );
-	}
-	else
-	{
-		SetMaxSpeed( HL2_WALK_SPEED );
-	}
-
-	m_fIsSprinting = false;
-
-	if ( sv_stickysprint.GetBool() )
-	{
-		m_bIsAutoSprinting = false;
-		m_fAutoSprintMinTime = 0.0f;
-	}
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Called to disable and enable sprint due to temporary circumstances:
-//			- Carrying a heavy object with the physcannon
-//-----------------------------------------------------------------------------
-void CHL2_Player::EnableSprint( bool bEnable )
-{
-	if ( !bEnable && IsSprinting() )
-	{
-		StopSprinting();
-	}
-
-	m_bSprintEnabled = bEnable;
-}
-
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -1816,12 +1669,6 @@ void CHL2_Player::SuitPower_Update( void )
 
 		if( !SuitPower_Drain( flPowerLoad * gpGlobals->frametime ) )
 		{
-			// TURN OFF ALL DEVICES!!
-			if( IsSprinting() )
-			{
-				StopSprinting();
-			}
-
 			if ( Flashlight_UseLegacyVersion() )
 			{
 				if( FlashlightIsOn() )

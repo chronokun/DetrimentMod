@@ -37,8 +37,7 @@ BEGIN_PREDICTION_DATA( C_HL2MP_Player )
 END_PREDICTION_DATA()
 
 #define	HL2_WALK_SPEED 150
-#define	HL2_NORM_SPEED 190
-#define	HL2_SPRINT_SPEED 320
+#define	HL2_NORM_SPEED 320
 
 static ConVar cl_playermodel( "cl_playermodel", "none", FCVAR_USERINFO | FCVAR_ARCHIVE | FCVAR_SERVER_CAN_EXECUTE, "Default Player Model");
 static ConVar cl_defaultweapon( "cl_defaultweapon", "weapon_physcannon", FCVAR_USERINFO | FCVAR_ARCHIVE, "Default Spawn Weapon");
@@ -326,14 +325,6 @@ void C_HL2MP_Player::PreThink( void )
 	BaseClass::PreThink();
 
 	HandleSpeedChanges();
-
-	if ( m_HL2Local.m_flSuitPower <= 0.0f )
-	{
-		if( IsSprinting() )
-		{
-			StopSprinting();
-		}
-	}
 }
 
 const QAngle &C_HL2MP_Player::EyeAngles()
@@ -553,74 +544,11 @@ Vector C_HL2MP_Player::GetAutoaimVector( float flDelta )
 	return	forward;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Returns whether or not we are allowed to sprint now.
-//-----------------------------------------------------------------------------
-bool C_HL2MP_Player::CanSprint( void )
-{
-	return ( (!m_Local.m_bDucked && !m_Local.m_bDucking) && (GetWaterLevel() != 3) );
-}
-
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void C_HL2MP_Player::StartSprinting( void )
-{
-	if( m_HL2Local.m_flSuitPower < 10 )
-	{
-		// Don't sprint unless there's a reasonable
-		// amount of suit power.
-		CPASAttenuationFilter filter( this );
-		filter.UsePredictionRules();
-		EmitSound( filter, entindex(), "HL2Player.SprintNoPower" );
-		return;
-	}
-
-	CPASAttenuationFilter filter( this );
-	filter.UsePredictionRules();
-	EmitSound( filter, entindex(), "HL2Player.SprintStart" );
-
-	SetMaxSpeed( HL2_SPRINT_SPEED );
-	m_fIsSprinting = true;
-}
-
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void C_HL2MP_Player::StopSprinting( void )
-{
-	SetMaxSpeed( HL2_NORM_SPEED );
-	m_fIsSprinting = false;
-}
-
 void C_HL2MP_Player::HandleSpeedChanges( void )
 {
 	int buttonsChanged = m_afButtonPressed | m_afButtonReleased;
 
-	if( buttonsChanged & IN_SPEED )
-	{
-		// The state of the sprint/run button has changed.
-		if ( IsSuitEquipped() )
-		{
-			if ( !(m_afButtonPressed & IN_SPEED)  && IsSprinting() )
-			{
-				StopSprinting();
-			}
-			else if ( (m_afButtonPressed & IN_SPEED) && !IsSprinting() )
-			{
-				if ( CanSprint() )
-				{
-					StartSprinting();
-				}
-				else
-				{
-					// Reset key, so it will be activated post whatever is suppressing it.
-					m_nButtons &= ~IN_SPEED;
-				}
-			}
-		}
-	}
-	else if( buttonsChanged & IN_WALK )
+	if( buttonsChanged & IN_WALK )
 	{
 		if ( IsSuitEquipped() )
 		{
@@ -629,7 +557,7 @@ void C_HL2MP_Player::HandleSpeedChanges( void )
 			{
 				StopWalking();
 			}
-			else if( !IsWalking() && !IsSprinting() && (m_afButtonPressed & IN_WALK) && !(m_nButtons & IN_DUCK) )
+			else if( !IsWalking() && (m_afButtonPressed & IN_WALK) && !(m_nButtons & IN_DUCK) )
 			{
 				StartWalking();
 			}
